@@ -7,11 +7,14 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
-from supabase import create_client, Client
-from dotenv import load_dotenv
+from supabase import create_client, client
 
-# Load Supabase keys from .env
-load_dotenv()
+# Safely load local .env if it exists, otherwise skip on cloud platforms like Render
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 app = FastAPI(title="QuickDrop API")
 
