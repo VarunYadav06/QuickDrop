@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickDrop — Ephemeral Peer File Relay</title>
+    <!-- Lucide Icons & QR Code -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #07090e;
+            --surface: rgba(18, 22, 34, 0.75);
+            --surface-hover: rgba(28, 34, 52, 0.85);
+            --border-glass: rgba(255, 255, 255, 0.08);
+            --border-glow: rgba(139, 92, 246, 0.4);
+            --accent: #8b5cf6;
+            --accent-gradient: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+            --accent-glow: rgba(139, 92, 246, 0.25);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --danger: #f43f5e;
+            --success: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 24px;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Ambient Dynamic Glow Orbs */
+        .ambient-bg { position: fixed; inset: 0; overflow: hidden; z-index: 0; pointer-events: none; }
+        .orb { position: absolute; border-radius: 50%; filter: blur(120px); opacity: 0.35; animation: float 20s infinite alternate cubic-bezier(0.4, 0, 0.2, 1); }
+        .orb-1 { width: 450px; height: 450px; background: #7c3aed; top: -100px; left: -100px; animation-duration: 16s; }
+        .orb-2 { width: 500px; height: 500px; background: #3b82f6; bottom: -150px; right: -150px; animation-duration: 22s; animation-delay: -5s; }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(60px, 80px) scale(1.1); }
+            100% { transform: translate(-40px, 40px) scale(0.95); }
+        }
+
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .spin { animation: spin 1s linear infinite; }
+
+        /* Main Glass Card */
+        .glass-panel {
+            position: relative; z-index: 10; width: 100%; max-width: 440px; background: var(--surface);
+            backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%);
+            border: 1px solid var(--border-glass); border-radius: 28px; padding: 36px 30px;
+            box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+        }
+
+        /* Brand Header */
+        .brand { text-align: center; margin-bottom: 24px; }
+        .brand-badge {
+            display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: rgba(139, 92, 246, 0.1);
+            border: 1px solid rgba(139, 92, 246, 0.2); border-radius: 9999px; font-size: 13px; font-weight: 600; color: #c4b5fd;
+            letter-spacing: 0.5px; margin-bottom: 12px; backdrop-filter: blur(8px);
+        }
+        .brand h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; color: var(--text-primary); }
+        .brand p { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+
+        /* Navigation Switcher */
+        .tab-switcher { display: flex; background: rgba(10, 13, 20, 0.6); border: 1px solid var(--border-glass); border-radius: 14px; padding: 5px; margin-bottom: 24px; }
+        .tab-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; background: transparent; border: none; color: var(--text-secondary); font-size: 13px; font-weight: 600; padding: 10px 6px; border-radius: 10px; cursor: pointer; transition: all 0.25s ease; }
+        .tab-btn.active { color: var(--text-primary); background: var(--surface-hover); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-glass); }
+
+        /* View Switching */
+        .view-content { display: none; opacity: 0; transform: translateY(8px); transition: opacity 0.3s ease, transform 0.3s ease; }
+        .view-content.active { display: block; opacity: 1; transform: translateY(0); }
+
+        /* Upload Dropzone Area */
+        .dropzone {
+            border: 2px dashed rgba(139, 92, 246, 0.5); border-radius: 20px; padding: 32px 20px; text-align: center; cursor: pointer;
+            transition: all 0.3s ease; background: rgba(15, 18, 28, 0.4); position: relative; overflow: hidden;
+        }
+        .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: rgba(139, 92, 246, 0.1); box-shadow: 0 0 20px rgba(139, 92, 246, 0.2); transform: scale(1.01); }
+        .dropzone-icon-ring { width: 50px; height: 50px; margin: 0 auto 14px; border-radius: 16px; background: rgba(139, 92, 246, 0.12); display: flex; align-items: center; justify-content: center; color: #a855f7; border: 1px solid rgba(139, 92, 246, 0.25); }
+        .dropzone h3 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+        .dropzone p { font-size: 12px; color: var(--text-muted); }
+
+        /* Textarea Code Block Box */
+        .glass-textarea {
+            width: 100%; height: 140px; background: rgba(15, 18, 28, 0.6); border: 1px solid var(--border-glass); border-radius: 16px;
+            color: var(--text-primary); padding: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 13px; resize: none; outline: none; transition: border-color 0.2s;
+        }
+        .glass-textarea:focus { border-color: var(--accent); box-shadow: 0 0 15px var(--accent-glow); }
+        .glass-textarea::placeholder { color: var(--text-muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto; }
+
+        /* Settings Dropdown */
+        .setting-group { margin-top: 16px; }
+        .setting-group label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; text-align: left; }
+        .glass-select {
+            width: 100%; background: rgba(15, 18, 28, 0.6); border: 1px solid var(--border-glass); color: var(--text-primary);
+            padding: 12px 14px; border-radius: 12px; font-size: 13px; outline: none; cursor: pointer; appearance: none;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2214%22%20height%3D%2214%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E");
+            background-repeat: no-repeat; background-position: right 14px center;
+        }
+        .glass-select:focus { border-color: var(--accent); }
+        .glass-select option { background: var(--bg-dark); color: var(--text-primary); }
+
+        /* Primary Action Buttons */
+        .btn-relay {
+            width: 100%; margin-top: 20px; padding: 15px; border-radius: 14px; border: none;
+            background: var(--accent-gradient); color: #ffffff; font-size: 15px; font-weight: 600;
+            display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+            cursor: pointer; box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.5); transition: all 0.25s ease;
+        }
+        .btn-relay:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 14px 30px -4px rgba(124, 58, 237, 0.65); }
+        .btn-relay:disabled { background: rgba(255, 255, 255, 0.06); color: var(--text-muted); box-shadow: none; cursor: not-allowed; }
+
+        /* Cyber-Pulse Encryption Animation Overlay */
+        #encryption-overlay {
+            display: none; text-align: center; padding: 30px 10px; animation: fadeIn 0.3s ease;
+        }
+        .pulse-ring-container {
+            position: relative; width: 80px; height: 80px; margin: 0 auto 24px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .pulse-ring {
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
+            border: 2px solid var(--accent); animation: radarPulse 1.8s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+            opacity: 0;
+        }
+        .pulse-ring:nth-child(2) { animation-delay: 0.6s; }
+        .pulse-ring:nth-child(3) { animation-delay: 1.2s; }
+        .pulse-core {
+            width: 42px; height: 42px; background: var(--accent-gradient); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; color: white;
+            box-shadow: 0 0 20px var(--accent); z-index: 2;
+        }
+        @keyframes radarPulse {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            100% { transform: scale(2.2); opacity: 0; }
+        }
+        .encryption-status-text { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+        .encryption-subtext { font-size: 12px; color: var(--text-muted); }
+
+        /* Active Payload Details (PIN & QR View) */
+        .payload-card { text-align: center; animation: scaleIn 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes scaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+        .pin-wrapper { margin: 18px 0; padding: 16px 20px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border-glass); border-radius: 16px; display: flex; align-items: center; justify-content: center; gap: 16px; }
+        .pin-digits { font-size: 34px; font-weight: 800; letter-spacing: 6px; font-variant-numeric: tabular-nums; background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .copy-pill { background: rgba(255, 255, 255, 0.08); border: none; color: var(--text-secondary); padding: 6px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .copy-pill:hover { background: rgba(255, 255, 255, 0.16); color: white; }
+        .qr-frame { display: inline-block; background: #ffffff; padding: 14px; border-radius: 18px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); margin: 10px 0 20px; }
+        .badge-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 22px; }
+        .stat-badge { flex: 1; padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+        .stat-badge.lock { color: #10b981; }
+        .stat-badge.burn { color: #f87171; }
+
+        /* Fetched Text Reader Box */
+        .fetched-text-box {
+            width: 100%; height: 160px; background: rgba(10, 13, 20, 0.8); border: 1px solid var(--border-glass); border-radius: 16px;
+            color: var(--text-primary); padding: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 13px; resize: none; outline: none; margin-bottom: 14px;
+        }
+        .btn-row { display: flex; gap: 10px; }
+
+        /* Receive Input View */
+        .pin-interactive-field { width: 100%; height: 64px; background: rgba(10, 13, 20, 0.6); border: 1.5px solid var(--border-glass); border-radius: 16px; color: white; font-size: 28px; font-weight: 700; text-align: center; letter-spacing: 12px; outline: none; transition: all 0.25s ease; }
+        .pin-interactive-field:focus { border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
+        .pin-interactive-field::placeholder { font-size: 15px; letter-spacing: 1px; font-weight: 400; color: var(--text-muted); }
+        .btn-cancel { background: transparent; border: 1px solid var(--border-glass); color: var(--text-secondary); margin-top: 10px; box-shadow: none; }
+        .btn-cancel:hover { background: rgba(255, 255, 255, 0.05); color: var(--danger); border-color: rgba(244, 63, 94, 0.3); transform: none; box-shadow: none; }
+    </style>
+</head>
+<body>
+
+    <!-- Premium Particle Background Layer -->
+    <canvas id="particles" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none;"></canvas>
+
+    <div class="ambient-bg">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+    </div>
+
+    <div class="glass-panel">
+        <div class="brand">
+            <div class="brand-badge">
+                <i data-lucide="ghost" style="width: 16px; height: 16px;"></i>
+                <span>QUICKDROP</span>
+            </div>
+            <h1>Encrypted Peer Relay</h1>
+            <p>Direct browser-to-storage transfer</p>
+        </div>
+
+        <div class="tab-switcher" id="main-tab-switcher">
+            <button class="tab-btn active" id="tab-btn-file" onclick="switchSendMode('file')">
+                <i data-lucide="file-up" style="width: 14px; height: 14px;"></i> File
+            </button>
+            <button class="tab-btn" id="tab-btn-text" onclick="switchSendMode('text')">
+                <i data-lucide="code" style="width: 14px; height: 14px;"></i> Text / Code
+            </button>
+            <button class="tab-btn" id="tab-btn-receive" onclick="switchSendMode('receive')">
+                <i data-lucide="download-cloud" style="width: 14px; height: 14px;"></i> Receive
+            </button>
+        </div>
+
+        <!-- SEND MODE: FILE -->
+        <div id="view-send-file" class="view-content active">
+            <div class="dropzone" id="drop-area" onclick="document.getElementById('file-selector').click()">
+                <div class="dropzone-icon-ring">
+                    <i data-lucide="upload-cloud" style="width: 24px; height: 24px;"></i>
+                </div>
+                <h3 id="target-filename">Select or Drop Payload</h3>
+                <p id="target-filesize">Direct Cloud Engine (Max 100 MB)</p>
+                <input type="file" id="file-selector" style="display: none;" onchange="onFileChosen(this)">
+            </div>
+            <div class="setting-group">
+                <label>Max Downloads Allowed</label>
+                <select id="setting-downloads-file" class="glass-select">
+                    <option value="1">1 Download (Burner)</option>
+                    <option value="2">2 Downloads</option>
+                    <option value="3">3 Downloads</option>
+                    <option value="5">5 Downloads</option>
+                </select>
+            </div>
+            <button class="btn-relay" id="btn-deploy-file" onclick="triggerRelayUpload('file')" disabled>
+                <i data-lucide="zap" style="width: 18px; height: 18px;"></i> Generate Secret Key
+            </button>
+        </div>
+
+        <!-- SEND MODE: TEXT / CODE BLOCK -->
+        <div id="view-send-text" class="view-content">
+            <textarea class="glass-textarea" id="text-snippet-input" placeholder="Paste your code block, API key, or secret message here..." oninput="onTextSnippetInput(this)"></textarea>
+            <div class="setting-group">
+                <label>Max Views Allowed</label>
+                <select id="setting-downloads-text" class="glass-select">
+                    <option value="1">1 View (Burner)</option>
+                    <option value="2">2 Views</option>
+                    <option value="3">3 Views</option>
+                    <option value="5">5 Views</option>
+                </select>
+            </div>
+            <button class="btn-relay" id="btn-deploy-text" onclick="triggerRelayUpload('text')" disabled>
+                <i data-lucide="zap" style="width: 18px; height: 18px;"></i> Generate Secret Key
+            </button>
+        </div>
+
+        <!-- CYBER-PULSE ENCRYPTION ANIMATION OVERLAY -->
+        <div id="encryption-overlay">
+            <div class="pulse-ring-container">
+                <div class="pulse-ring"></div>
+                <div class="pulse-ring"></div>
+                <div class="pulse-core">
+                    <i data-lucide="shield-check" style="width: 22px; height: 22px;"></i>
+                </div>
+            </div>
+            <div class="encryption-status-text" id="enc-status-text">Encrypting Payload...</div>
+            <div class="encryption-subtext" id="enc-subtext">Establishing secure tunnel to Supabase core</div>
+        </div>
+
+        <!-- VIEW: ACTIVE RESULT (PIN & QR) -->
+        <div id="active-panel" style="display: none;" class="payload-card">
+            <div class="pin-wrapper">
+                <span class="pin-digits" id="display-key">------</span>
+                <button class="copy-pill" title="Copy PIN" onclick="copyPIN()">
+                    <i data-lucide="copy" style="width: 16px; height: 16px;" id="copy-icon"></i>
+                </button>
+            </div>
+
+            <div class="qr-frame"><div id="qr-output"></div></div>
+
+            <div class="badge-row">
+                <div class="stat-badge lock">
+                    <i data-lucide="lock" style="width: 15px; height: 15px;"></i>
+                    <span>Encrypted Link</span>
+                </div>
+                <div class="stat-badge burn">
+                    <i data-lucide="flame" style="width: 15px; height: 15px;"></i>
+                    <span id="burn-text">Burn on Fetch</span>
+                </div>
+            </div>
+
+            <button class="btn-relay btn-cancel" onclick="window.location.reload()">Deploy Another Payload</button>
+        </div>
+
+        <!-- VIEW: RECEIVE -->
+        <div id="view-receive" class="view-content">
+            <div id="receive-input-box">
+                <p style="font-size: 13px; color: var(--text-muted); text-align: center; margin-bottom: 16px;">
+                    Enter the 6-digit access code provided by sender
+                </p>
+                <input type="text" class="pin-interactive-field" id="pin-receiver-input" maxlength="6" placeholder="000000" autocomplete="off" oninput="sanitizePinInput(this)">
+                
+                <button class="btn-relay" id="btn-fetch-file" onclick="triggerFetchPayload()" disabled>
+                    <i data-lucide="download" style="width: 18px; height: 18px;"></i>
+                    Fetch Payload
+                </button>
+            </div>
+
+            <!-- VIEW: FETCHED TEXT RESULT CARD -->
+            <div id="fetched-text-card" style="display: none;">
+                <p style="font-size: 13px; color: var(--success); font-weight: 600; text-align: center; margin-bottom: 12px;">
+                    <i data-lucide="check-circle" style="width: 14px; height: 14px; vertical-align: middle;"></i> Text Payload Retrieved Successfully
+                </p>
+                <textarea class="fetched-text-box" id="fetched-text-content" readonly></textarea>
+                <div class="btn-row">
+                    <button class="btn-relay" style="margin-top: 0; flex: 1;" onclick="copyFetchedText()">
+                        <i data-lucide="copy" style="width: 16px; height: 16px;"></i> Copy Text
+                    </button>
+                    <button class="btn-relay btn-cancel" style="margin-top: 0; flex: 1;" onclick="downloadFetchedTextAsFile()">
+                        <i data-lucide="download" style="width: 16px; height: 16px;"></i> Download .txt
+                    </button>
+                </div>
+                <button class="btn-relay btn-cancel" onclick="window.location.reload()">Fetch Another Payload</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- UI Logic Scripts -->
+    <script>
+        lucide.createIcons();
+        let selectedFile = null;
+        let fetchedRawText = "";
+        let fetchedFileName = "snippet.txt";
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(window.location.search);
+            const pinFromUrl = params.get('pin');
+            if (pinFromUrl && pinFromUrl.length === 6) {
+                switchSendMode('receive');
+                const pinInput = document.getElementById('pin-receiver-input');
+                pinInput.value = pinFromUrl;
+                sanitizePinInput(pinInput);
+            }
+        });
+
+        function switchSendMode(mode) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.view-content').forEach(view => view.classList.remove('active'));
+
+            if (mode === 'file') {
+                document.getElementById('tab-btn-file').classList.add('active');
+                document.getElementById('view-send-file').classList.add('active');
+            } else if (mode === 'text') {
+                document.getElementById('tab-btn-text').classList.add('active');
+                document.getElementById('view-send-text').classList.add('active');
+            } else {
+                document.getElementById('tab-btn-receive').classList.add('active');
+                document.getElementById('view-receive').classList.add('active');
+            }
+        }
+
+        const dropArea = document.getElementById('drop-area');
+        ['dragenter', 'dragover'].forEach(n => dropArea.addEventListener(n, e => { e.preventDefault(); dropArea.classList.add('dragover'); }, false));
+        ['dragleave', 'drop'].forEach(n => dropArea.addEventListener(n, e => { e.preventDefault(); dropArea.classList.remove('dragover'); }, false));
+        dropArea.addEventListener('drop', e => {
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                document.getElementById('file-selector').files = e.dataTransfer.files;
+                onFileChosen(document.getElementById('file-selector'));
+            }
+        });
+
+        function onFileChosen(input) {
+            const nameTarget = document.getElementById('target-filename');
+            const actionBtn = document.getElementById('btn-deploy-file');
+
+            if (input.files.length > 0) {
+                selectedFile = input.files[0];
+                nameTarget.textContent = selectedFile.name;
+                document.getElementById('target-filesize').textContent = `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB Payload Ready`;
+                actionBtn.disabled = false;
+            } else {
+                selectedFile = null;
+                nameTarget.textContent = 'Select or Drop Payload';
+                document.getElementById('target-filesize').textContent = 'Direct Cloud Engine (Max 100 MB)';
+                actionBtn.disabled = true;
+            }
+        }
+
+        function onTextSnippetInput(textarea) {
+            const btn = document.getElementById('btn-deploy-text');
+            btn.disabled = textarea.value.trim().length === 0;
+        }
+
+        async function triggerRelayUpload(type) {
+            document.getElementById('view-send-file').style.display = 'none';
+            document.getElementById('view-send-text').style.display = 'none';
+            document.getElementById('main-tab-switcher').style.display = 'none';
+            document.getElementById('encryption-overlay').style.display = 'block';
+
+            const statusTexts = [
+                { title: "Encrypting Payload...", sub: "Applying cryptographic client masking" },
+                { title: "Allocating Secure Tunnel...", sub: "Connecting directly to Supabase storage" },
+                { title: "Generating Secret Key...", sub: "Finalizing self-destruct parameters" }
+            ];
+
+            let step = 0;
+            const statusInterval = setInterval(() => {
+                step++;
+                if (step < statusTexts.length) {
+                    document.getElementById('enc-status-text').textContent = statusTexts[step].title;
+                    document.getElementById('enc-subtext').textContent = statusTexts[step].sub;
+                }
+            }, 700);
+
+            try {
+                const formData = new FormData();
+                let maxDls = 1;
+
+                if (type === 'file') {
+                    formData.append("file", selectedFile);
+                    maxDls = document.getElementById('setting-downloads-file').value;
+                } else {
+                    const textContent = document.getElementById('text-snippet-input').value;
+                    const textBlob = new Blob([textContent], { type: 'text/plain' });
+                    formData.append("file", textBlob, `snippet_${Date.now()}.txt`);
+                    maxDls = document.getElementById('setting-downloads-text').value;
+                }
+
+                formData.append("time_limit_sec", 1800); // 30 minutes
+                formData.append("max_downloads", parseInt(maxDls));
+
+                const res = await fetch('/api/generate-upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const initData = await res.json();
+                if (!res.ok) throw new Error(initData.detail || "Failed to contact QuickDrop core.");
+
+                clearInterval(statusInterval);
+
+                setTimeout(() => {
+                    document.getElementById('encryption-overlay').style.display = 'none';
+                    document.getElementById('active-panel').style.display = 'block';
+                    document.getElementById('display-key').textContent = initData.pin;
+                    document.getElementById('burn-text').textContent = maxDls === "1" ? "Burn on Fetch" : `Max ${maxDls} DLs`;
+
+                    const qrTarget = document.getElementById('qr-output');
+                    qrTarget.innerHTML = "";
+                    new QRCode(qrTarget, {
+                        text: `${window.location.origin}${window.location.pathname}?pin=${initData.pin}`,
+                        width: 140, height: 140, colorDark: "#07090e", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.H
+                    });
+                }, 500);
+
+            } catch (err) {
+                clearInterval(statusInterval);
+                alert("Upload Error: " + err.message);
+                window.location.reload();
+            }
+        }
+
+        function copyPIN() {
+            const pin = document.getElementById('display-key').textContent;
+            navigator.clipboard.writeText(pin).then(() => {
+                const icon = document.getElementById('copy-icon');
+                icon.setAttribute('data-lucide', 'check'); lucide.createIcons();
+                setTimeout(() => { icon.setAttribute('data-lucide', 'copy'); lucide.createIcons(); }, 1500);
+            });
+        }
+
+        function sanitizePinInput(input) {
+            input.value = input.value.replace(/[^0-9]/g, '');
+            document.getElementById('btn-fetch-file').disabled = input.value.length !== 6;
+        }
+
+        async function triggerFetchPayload() {
+            const pin = document.getElementById('pin-receiver-input').value;
+            const btn = document.getElementById('btn-fetch-file');
+            
+            btn.disabled = true;
+            btn.innerHTML = `<i data-lucide="loader" class="spin"></i> Verifying...`;
+            lucide.createIcons();
+
+            try {
+                const res = await fetch('/api/fetch-payload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin: pin })
+                });
+                
+                if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.detail || "Payload not found.");
+                }
+
+                const payloadType = res.headers.get('x-payload-type');
+
+                if (payloadType === 'text') {
+                    fetchedRawText = await res.text();
+                    fetchedFileName = res.headers.get('x-filename') || "snippet.txt";
+                    
+                    document.getElementById('receive-input-box').style.display = 'none';
+                    document.getElementById('main-tab-switcher').style.display = 'none';
+                    document.getElementById('fetched-text-content').value = fetchedRawText;
+                    document.getElementById('fetched-text-card').style.display = 'block';
+                    lucide.createIcons();
+                } else {
+                    const disposition = res.headers.get('content-disposition');
+                    let filename = "payload_file";
+                    if (disposition && disposition.includes('filename=')) {
+                        filename = disposition.split('filename=')[1].replace(/"/g, '');
+                    }
+
+                    const blob = await res.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = downloadUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(downloadUrl);
+
+                    alert(`File payload successfully downloaded!`);
+                    document.getElementById('pin-receiver-input').value = "";
+                }
+                
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                btn.disabled = document.getElementById('pin-receiver-input').value.length !== 6;
+                btn.innerHTML = `<i data-lucide="download"></i> Fetch Payload`;
+                lucide.createIcons();
+            }
+        }
+
+        function copyFetchedText() {
+            navigator.clipboard.writeText(fetchedRawText).then(() => {
+                alert("Text copied to clipboard!");
+            });
+        }
+
+        function downloadFetchedTextAsFile() {
+            const blob = new Blob([fetchedRawText], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fetchedFileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+    </script>
+
+    <!-- Premium Particle Canvas Logic -->
+    <script>
+        const canvas = document.getElementById("particles");
+        const ctx = canvas.getContext("2d");
+        
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+
+        let particlesArray = [];
+        const mouse = { x: null, y: null, radius: 150 };
+
+        window.addEventListener('mousemove', function(event) {
+            mouse.x = event.x;
+            mouse.y = event.y;
+        });
+
+        window.addEventListener('mouseout', function() {
+            mouse.x = undefined;
+            mouse.y = undefined;
+        });
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 2 + 1;
+                this.speedX = Math.random() * 0.8 - 0.4;
+                this.speedY = Math.random() * 0.8 - 0.4;
+            }
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                
+                if (this.x < 0 || this.x > canvas.width) this.speedX = -this.speedX;
+                if (this.y < 0 || this.y > canvas.height) this.speedY = -this.speedY;
+
+                if (mouse.x && mouse.y) {
+                    let dx = mouse.x - this.x;
+                    let dy = mouse.y - this.y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < mouse.radius) {
+                        const forceDirectionX = dx / distance;
+                        const forceDirectionY = dy / distance;
+                        const force = (mouse.radius - distance) / mouse.radius;
+                        this.x -= forceDirectionX * force * 1.5;
+                        this.y -= forceDirectionY * force * 1.5;
+                    }
+                }
+            }
+            draw() {
+                ctx.fillStyle = 'rgba(139, 92, 246, 0.4)';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function initParticles() {
+            particlesArray = [];
+            let particleCount = (canvas.width * canvas.height) / 12000;
+            for (let i = 0; i < particleCount; i++) {
+                particlesArray.push(new Particle());
+            }
+        }
+
+        function animateParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < particlesArray.length; i++) {
+                particlesArray[i].update();
+                particlesArray[i].draw();
+                
+                for (let j = i; j < particlesArray.length; j++) {
+                    const dx = particlesArray[i].x - particlesArray[j].x;
+                    const dy = particlesArray[i].y - particlesArray[j].y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < 110) {
+                        ctx.beginPath();
+                        ctx.strokeStyle = `rgba(139, 92, 246, ${0.25 - (distance/110) * 0.25})`;
+                        ctx.lineWidth = 1;
+                        ctx.moveTo(particlesArray[i].x, particlesArray[i].y);
+                        ctx.lineTo(particlesArray[j].x, particlesArray[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(animateParticles);
+        }
+
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            initParticles();
+        });
+
+        initParticles();
+        animateParticles();
+    </script>
+</body>
+</html>
