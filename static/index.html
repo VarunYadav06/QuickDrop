@@ -656,5 +656,32 @@
         initParticles();
         animateParticles();
     </script>
+
+    <script>
+    window.addEventListener("DOMContentLoaded", async () => {
+      const params = new URLSearchParams(window.location.search);
+      const port = params.get("qd_port");
+      const token = params.get("qd_token");
+      const name = params.get("qd_name") || "payload.bin";
+      if (!port || !token) return;
+
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/payload?token=${token}`);
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const fileInput = document.querySelector('input[type="file"]');
+        if (fileInput) {
+          fileInput.files = dt.files;
+          fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (err) {
+        console.warn("QuickDrop localhost bridge fallback:", err);
+      }
+    });
+    </script>
 </body>
 </html>
